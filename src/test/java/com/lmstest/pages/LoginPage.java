@@ -13,7 +13,10 @@ public class LoginPage {
 
     private final By usernameField = By.id("username");
     private final By passwordField = By.id("password");
-    private final By loginButton   = By.id("loginbtn");
+    private final By loginButton = By.id("loginbtn");
+
+    // Moodle login error message
+    private final By loginError = By.id("loginerrormessage");
 
     public LoginPage(WebDriver driver, WebDriverWait wait) {
         this.driver = driver;
@@ -22,15 +25,69 @@ public class LoginPage {
 
     public LoginPage open() {
         driver.get(BaseTest.BASE_URL + "/login/index.php");
-        wait.until(ExpectedConditions.visibilityOfElementLocated(usernameField));
+
+        wait.until(
+                ExpectedConditions.visibilityOfElementLocated(usernameField)
+        );
+
         return this;
     }
 
-    /** Logs in and waits until Moodle leaves the login page. */
-    public void loginAs(String username, String password) {
+    /**
+     * Enters username and password, then clicks Login.
+     *
+     * This method does not wait for a redirect, so it can be used
+     * for both valid and invalid credentials.
+     */
+    public void login(String username, String password) {
+        wait.until(
+                ExpectedConditions.visibilityOfElementLocated(usernameField)
+        ).clear();
+
         driver.findElement(usernameField).sendKeys(username);
+
+        driver.findElement(passwordField).clear();
         driver.findElement(passwordField).sendKeys(password);
-        driver.findElement(loginButton).click();
-        wait.until(ExpectedConditions.not(ExpectedConditions.urlContains("/login/")));
+
+        clickLogin();
+    }
+
+    /**
+     * Performs a successful login and waits until Moodle
+     * leaves the login page.
+     */
+    public void loginAs(String username, String password) {
+        login(username, password);
+
+        wait.until(
+                ExpectedConditions.not(
+                        ExpectedConditions.urlContains("/login/")
+                )
+        );
+    }
+
+    /**
+     * Clicks the Login button.
+     */
+    public void clickLogin() {
+        wait.until(
+                ExpectedConditions.elementToBeClickable(loginButton)
+        ).click();
+    }
+
+    /**
+     * Checks whether Moodle displays a login error.
+     */
+    public boolean isErrorDisplayed() {
+        return wait.until(
+                ExpectedConditions.visibilityOfElementLocated(loginError)
+        ).isDisplayed();
+    }
+
+    /**
+     * Returns the current browser page title.
+     */
+    public String getTitle() {
+        return driver.getTitle();
     }
 }
