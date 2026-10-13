@@ -2,6 +2,10 @@ package com.lmstest.pages;
 
 import com.lmstest.base.BaseTest;
 import org.openqa.selenium.By;
+import org.openqa.selenium.ElementClickInterceptedException;
+import org.openqa.selenium.JavascriptExecutor;
+import org.openqa.selenium.NoSuchElementException;
+import org.openqa.selenium.StaleElementReferenceException;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.ui.ExpectedConditions;
@@ -15,8 +19,8 @@ public class MyCoursesPage {
     private final WebDriver driver;
     private final WebDriverWait wait;
 
-    // Course name links inside the "My courses" overview block
-    private final By courseLinks = By.cssSelector("[data-region='courses-view'] a.coursename");
+    private final By courseLinks =
+            By.cssSelector("[data-region='courses-view'] a.coursename");
 
     public MyCoursesPage(WebDriver driver, WebDriverWait wait) {
         this.driver = driver;
@@ -25,37 +29,119 @@ public class MyCoursesPage {
 
     public MyCoursesPage open() {
         driver.get(BaseTest.BASE_URL + "/my/courses.php");
-        wait.until(ExpectedConditions.numberOfElementsToBeMoreThan(courseLinks, 0));
+
+        wait.until(
+                ExpectedConditions.numberOfElementsToBeMoreThan(
+                        courseLinks, 0
+                )
+        );
+
         return this;
     }
 
-    /** Names of all enrolled courses currently listed. */
+    // Return the names of enrolled courses.
     public List<String> getCourseNames() {
         List<String> names = new ArrayList<>();
+
         for (WebElement link : driver.findElements(courseLinks)) {
-            names.add(nameOf(link));
+            String name = nameOf(link);
+
+            if (!name.isBlank()) {
+                names.add(name);
+            }
         }
+
         return names;
     }
 
-    /** Clicks the course at the given position and returns its name. */
+    // Open a course by its position in the list.
     public String openCourse(int index) {
-        WebElement link = driver.findElements(courseLinks).get(index);
+        List<WebElement> links = wait.until(
+                ExpectedConditions.presenceOfAllElementsLocatedBy(courseLinks)
+        );
+
+        if (index < 0 || index >= links.size()) {
+            throw new NoSuchElementException(
+                    "Course index is out of range: " + index
+            );
+        }
+
+        WebElement link = links.get(index);
         String name = nameOf(link);
-        link.click();
+
+        clickSafely(link);
+
         return name;
     }
 
-    // The link can contain a hidden "Course name" label; read the visible text only.
+    // Open an enrolled course by its displayed name.
+    public String openCourseByName(String courseName) {
+        wait.until(
+                ExpectedConditions.presenceOfAllElementsLocatedBy(courseLinks)
+        );
+
+        for (int i = 0; i < 3; i++) {
+            try {
+                List<WebElement> links = driver.findElements(courseLinks);
+
+                for (int j = 0; j < links.size(); j++) {
+                    // Re-fetch the element in case the page refreshed.
+                    WebElement link = driver.findElements(courseLinks).get(j);
+                    String name = nameOf(link);
+
+                    if (name.equalsIgnoreCase(courseName.trim())) {
+                        clickSafely(link);
+                        return name;
+                    }
+                }
+
+                break;
+
+            } catch (StaleElementReferenceException e) {
+                // Retry if Moodle refreshes the course list.
+            }
+        }
+
+        throw new NoSuchElementException(
+                "Course not found in My Courses: " + courseName
+        );
+    }
+
+    private void clickSafely(WebElement element) {
+        ((JavascriptExecutor) driver).executeScript(
+                "arguments[0].scrollIntoView({block:'center'});",
+                element
+        );
+
+        try {
+            wait.until(
+                    ExpectedConditions.elementToBeClickable(element)
+            ).click();
+
+        } catch (ElementClickInterceptedException e) {
+            ((JavascriptExecutor) driver).executeScript(
+                    "arguments[0].click();",
+                    element
+            );
+        }
+    }
+
+    // Read the visible course name.
     private String nameOf(WebElement link) {
-        List<WebElement> visible = link.findElements(By.cssSelector(".multiline"));
-        String text = visible.isEmpty() ? link.getText() : visible.get(0).getText();
-        // Moodle repeats the name for screen readers, so keep only the first non-empty line
-        for (String line : text.replace("Course name", "").split("\\R")) {
+        List<WebElement> labels =
+                link.findElements(By.cssSelector(".multiline"));
+
+        String text = labels.isEmpty()
+                ? link.getText()
+                : labels.get(0).getText();
+
+        for (String line :
+                text.replace("Course name", "").split("\\R")) {
             if (!line.trim().isEmpty()) {
                 return line.trim();
             }
         }
+
         return "";
     }
 }
