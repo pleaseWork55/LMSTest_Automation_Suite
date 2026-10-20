@@ -19,6 +19,10 @@ public class CoursePage {
     // "Page" activities open as normal HTML, so they are preferred for the open-resource check
     private final By pageLinks        = By.cssSelector("li.activity.modtype_page a.aalink");
     private final By anyActivityLinks = By.cssSelector("li.activity a.aalink");
+    // Course index drawer (closed by default) and its section links
+    // Must be the "Open course index" button; the drawer's own "close" button shares the same data-target
+    private final By courseIndexToggle = By.cssSelector(".drawer-left-toggle button[data-action='toggle']");
+    private final By sectionIndexLinks = By.cssSelector("#courseindex a[data-for='section_title']");
 
     public CoursePage(WebDriver driver, WebDriverWait wait) {
         this.driver = driver;
@@ -59,6 +63,26 @@ public class CoursePage {
         String href = links.get(0).getAttribute("href");
         driver.get(href);
         return href;
+    }
+
+    /** Opens the course index drawer (if closed), clicks the section link at the given position, returns its name. */
+    public String openSection(int index) {
+        wait.until(ExpectedConditions.numberOfElementsToBeMoreThan(sectionIndexLinks, index));
+        WebElement link = driver.findElements(sectionIndexLinks).get(index);
+        // The drawer is either already open (link visible) or closed (open button visible)
+        wait.until(d -> link.isDisplayed() || d.findElement(courseIndexToggle).isDisplayed());
+        if (!link.isDisplayed()) {
+            driver.findElement(courseIndexToggle).click();
+        }
+        wait.until(ExpectedConditions.visibilityOf(link));
+        String name = link.getText().trim();
+        wait.until(ExpectedConditions.elementToBeClickable(link)).click();
+        return name;
+    }
+
+    /** True once the browser has moved to a section (#section-N anchor or section.php page). */
+    public boolean isSectionOpened() {
+        return wait.until(ExpectedConditions.urlContains("section"));
     }
 
     public boolean isResourceOpened() {
