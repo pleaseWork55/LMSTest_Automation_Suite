@@ -1,6 +1,7 @@
 package com.lmstest.pages;
 
 import com.lmstest.base.BaseTest;
+
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.support.ui.ExpectedConditions;
@@ -14,9 +15,19 @@ public class LoginPage {
     private final By usernameField = By.id("username");
     private final By passwordField = By.id("password");
     private final By loginButton = By.id("loginbtn");
-
-    // Moodle login error message
     private final By loginError = By.id("loginerrormessage");
+    private final By loginLink = By.cssSelector( "a[href$='/login/index.php']");
+    // Moodle forgot-password link
+    private final By forgotPasswordLink = By.cssSelector(
+            "a[href*='/login/forgot_password.php']"
+    );
+
+    // Moodle user menu and logout link
+    private final By userMenuButton = By.id("user-menu-toggle");
+
+    private final By logoutLink = By.cssSelector(
+            "a[href*='/login/logout.php']"
+    );
 
     public LoginPage(WebDriver driver, WebDriverWait wait) {
         this.driver = driver;
@@ -33,12 +44,6 @@ public class LoginPage {
         return this;
     }
 
-    /**
-     * Enters username and password, then clicks Login.
-     *
-     * This method does not wait for a redirect, so it can be used
-     * for both valid and invalid credentials.
-     */
     public void login(String username, String password) {
         wait.until(
                 ExpectedConditions.visibilityOfElementLocated(usernameField)
@@ -52,10 +57,6 @@ public class LoginPage {
         clickLogin();
     }
 
-    /**
-     * Performs a successful login and waits until Moodle
-     * leaves the login page.
-     */
     public void loginAs(String username, String password) {
         login(username, password);
 
@@ -66,28 +67,56 @@ public class LoginPage {
         );
     }
 
-    /**
-     * Clicks the Login button.
-     */
     public void clickLogin() {
         wait.until(
                 ExpectedConditions.elementToBeClickable(loginButton)
         ).click();
     }
 
-    /**
-     * Checks whether Moodle displays a login error.
-     */
     public boolean isErrorDisplayed() {
         return wait.until(
                 ExpectedConditions.visibilityOfElementLocated(loginError)
         ).isDisplayed();
     }
 
-    /**
-     * Returns the current browser page title.
-     */
     public String getTitle() {
         return driver.getTitle();
     }
+
+    public void clickForgotPassword() {
+        wait.until(
+                ExpectedConditions.elementToBeClickable(forgotPasswordLink)
+        ).click();
+    }
+
+    public boolean isForgotPasswordPageDisplayed() {
+        return wait.until(
+                ExpectedConditions.urlContains("/login/forgot_password.php")
+        );
+    }
+
+    public void clickLogout() {
+        wait.until(
+                ExpectedConditions.elementToBeClickable(userMenuButton)
+        ).click();
+
+        wait.until(
+                ExpectedConditions.elementToBeClickable(logoutLink)
+        ).click();
+    }
+
+    public boolean isLoginPageDisplayed() {
+    return driver.getCurrentUrl().contains("/login/index.php");
+}
+public boolean isLoginLinkDisplayed() {
+    return wait.until(
+            ExpectedConditions.visibilityOfElementLocated(loginLink)
+    ).isDisplayed();
+}
+public boolean isLoggedOut() {
+    String currentUrl = driver.getCurrentUrl();
+
+    return currentUrl.equals(BaseTest.BASE_URL + "/")
+            || currentUrl.contains("/login/index.php");
+}
 }
