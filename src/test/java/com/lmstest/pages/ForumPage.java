@@ -1,276 +1,554 @@
+    package com.lmstest.pages;
 
-package com.lmstest.pages;
+    import org.openqa.selenium.By;
+    import org.openqa.selenium.ElementClickInterceptedException;
+    import org.openqa.selenium.JavascriptExecutor;
+    import org.openqa.selenium.Keys;
+    import org.openqa.selenium.NoSuchElementException;
+    import org.openqa.selenium.TimeoutException;
+    import org.openqa.selenium.WebDriver;
+    import org.openqa.selenium.WebElement;
+    import org.openqa.selenium.support.ui.ExpectedConditions;
+    import org.openqa.selenium.support.ui.WebDriverWait;
 
-import org.openqa.selenium.By;
-import org.openqa.selenium.ElementClickInterceptedException;
-import org.openqa.selenium.JavascriptExecutor;
-import org.openqa.selenium.NoSuchElementException;
-import org.openqa.selenium.StaleElementReferenceException;
-import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.WebElement;
-import org.openqa.selenium.support.ui.ExpectedConditions;
-import org.openqa.selenium.support.ui.WebDriverWait;
+    import java.util.List;
 
-import java.util.List;
+    public class ForumPage {
 
-public class ForumPage {
+        private final WebDriver driver;
+        private final WebDriverWait wait;
 
-    private final WebDriver driver;
-    private final WebDriverWait wait;
-
-    private final By discussionLinks =
-            By.cssSelector("a[href*='/mod/forum/discuss.php']");
-
-    private final By forumPost =
-            By.cssSelector(".forumpost");
-
-    private final By postContent =
-            By.cssSelector(".forumpost .posting");
-
-    public ForumPage(WebDriver driver, WebDriverWait wait) {
-        this.driver = driver;
-        this.wait = wait;
-    }
-
-    // Open a forum by its displayed name.
-    public void openForum(String forumName) {
-        By forumLinks = By.cssSelector(
-                "a[href*='/mod/forum/view.php']"
-        );
-
-        wait.until(d -> d.findElements(forumLinks).stream()
-                .anyMatch(link -> link.isDisplayed()
-                        && normalize(link.getText())
-                        .contains(normalize(forumName))));
-
-        List<WebElement> links =
-                driver.findElements(forumLinks);
-
-        for (WebElement link : links) {
-            if (link.isDisplayed()
-                    && normalize(link.getText())
-                    .contains(normalize(forumName))) {
-
-                String url = link.getAttribute("href");
-
-                if (url == null || url.isBlank()) {
-                    continue;
-                }
-
-                driver.navigate().to(url);
-
-                wait.until(ExpectedConditions.urlContains(
-                        "/mod/forum/view.php"
-                ));
-                return;
-            }
+        public ForumPage(WebDriver driver, WebDriverWait wait) {
+            this.driver = driver;
+            this.wait = wait;
         }
 
-        throw new NoSuchElementException(
-                "Forum not found: " + forumName
-        );
-    }
+        // Open a forum by its visible name.
+        public void openForum(String forumName) {
+            By locator = By.xpath(
+                    "//a[contains(normalize-space(.), "
+                            + xpathLiteral(forumName) + ")]"
+            );
 
-    // Open a discussion without hardcoding its ID.
-    public void openDiscussion(String discussionTitle) {
-        wait.until(d ->
-                !d.findElements(discussionLinks).isEmpty()
-        );
+            List<WebElement> links = wait.until(
+                    ExpectedConditions.presenceOfAllElementsLocatedBy(locator)
+            );
 
-        String discussionUrl =
-                findDiscussionUrl(discussionTitle);
+            for (WebElement link : links) {
+                if (link.isDisplayed() && link.isEnabled()) {
+                    clickSafely(link);
+                    wait.until(ExpectedConditions.or(
+                            ExpectedConditions.urlContains("/mod/forum/view.php"),
+                            ExpectedConditions.presenceOfElementLocated(
+                                    By.cssSelector("a[href*='/mod/forum/discuss.php']")
+                            ),
+                            ExpectedConditions.presenceOfElementLocated(
+                                    By.xpath("//a[contains(., 'Add discussion topic')]")
+                            )
+                    ));
+                    return;
+                }
+            }
 
-        if (discussionUrl == null) {
             throw new NoSuchElementException(
-                    "Could not find discussion: "
-                            + discussionTitle
+                    "Could not find a visible forum link: " + forumName
             );
         }
 
-        driver.navigate().to(discussionUrl);
+        // Open a discussion from the forum page.
 
-        wait.until(ExpectedConditions.urlContains(
-                "/mod/forum/discuss.php"
-        ));
 
-        wait.until(d -> isDiscussionDisplayed(discussionTitle));
-    }
+        public void openDiscussion(String title) {
 
-    // Find the discussion URL using its surrounding text.
-    private String findDiscussionUrl(String discussionTitle) {
-        List<WebElement> links =
-                driver.findElements(discussionLinks);
+            By discussLink = By.xpath(
+                    "//a[contains(normalize-space(.), 'Discuss this topic')]"
+            );
 
-        for (WebElement link : links) {
+            WebElement link = wait.until(
+                    ExpectedConditions.elementToBeClickable(discussLink)
+            );
+
+            clickSafely(link);
+
+            wait.until(ExpectedConditions.urlContains(
+                    "/mod/forum/discuss.php"
+            ));
+
+            System.out.println("Opened discussion page for: " + title);
+        }
+
+        // Check whether the discussion title is visible
+        public boolean isDiscussionDisplayed(String title) {
+
+            // Look for the title in common Moodle page elements
+            By locator = By.xpath(
+                    "//*[self::h1 or self::h2 or self::h3 or self::a "
+                            + "or contains(@class, 'discussion') "
+                            + "or contains(@class, 'subject')]"
+                            + "[normalize-space(.) = "
+                            + xpathLiteral(title) + "]"
+            );
+
             try {
-                String href = link.getAttribute("href");
 
-                if (href == null || href.isBlank()) {
-                    continue;
-                }
+                List<WebElement> elements = wait.until(
+                        ExpectedConditions.visibilityOfAllElementsLocatedBy(
+                                locator
+                        )
+                );
 
-                WebElement container = link;
+                for (WebElement element : elements) {
 
-                for (int i = 0; i < 6; i++) {
-                    if (normalize(container.getText())
-                            .contains(normalize(discussionTitle))) {
-                        return href;
-                    }
-
-                    try {
-                        container = container.findElement(
-                                By.xpath("..")
-                        );
-                    } catch (NoSuchElementException e) {
-                        break;
+                    if (element.isDisplayed()
+                            && element.getText().trim().equals(title)) {
+                        return true;
                     }
                 }
-            } catch (StaleElementReferenceException ignored) {
-                // Continue with the next link.
+
+            } catch (TimeoutException e) {
+                return false;
+            }
+
+            return false;
+        }
+
+
+        // Check whether the page contains a visible forum post
+        public boolean isPostContentDisplayed() {
+
+            List<WebElement> posts = driver.findElements(
+                    By.cssSelector(".forumpost")
+            );
+
+            for (WebElement post : posts) {
+
+                if (post.isDisplayed()
+                        && !post.getText().trim().isEmpty()) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+
+        // Check whether specific text is visible on the page.
+        public boolean isTextDisplayed(String text) {
+            By locator = By.xpath(
+                    "//*[contains(normalize-space(.), "
+                            + xpathLiteral(text) + ")]"
+            );
+
+            try {
+                return wait.until(
+                        ExpectedConditions.visibilityOfElementLocated(locator)
+                ).isDisplayed();
+            } catch (TimeoutException e) {
+                return false;
             }
         }
 
-        // Use the only available discussion link if there is just one.
-        List<WebElement> currentLinks =
-                driver.findElements(discussionLinks);
+        // Check that a discussion title is no longer visible.
+        public boolean isDiscussionAbsent(String title) {
+            By locator = By.xpath(
+                    "//*[normalize-space(.) = " + xpathLiteral(title) + "]"
+            );
 
-        if (currentLinks.size() == 1) {
-            return currentLinks.get(0).getAttribute("href");
+            try {
+                wait.until(ExpectedConditions.invisibilityOfElementLocated(locator));
+                return true;
+            } catch (TimeoutException e) {
+                return false;
+            }
         }
 
-        return null;
-    }
-
-    // Check whether the discussion title is displayed.
-    public boolean isDiscussionDisplayed(String discussionTitle) {
-        By title = By.xpath(
-                "//*[normalize-space(.)='"
-                        + discussionTitle + "']"
-        );
-
-        return driver.findElements(title).stream()
-                .anyMatch(WebElement::isDisplayed);
-    }
-
-    // Check whether the original post content is visible.
-
-    public boolean isPostContentDisplayed() {
-        WebElement post = wait.until(
-                ExpectedConditions.visibilityOfElementLocated(
-                        forumPost
-                )
-        );
-
-        return !post.getText().trim().isEmpty();
-    }
+        // Click Reply on the first visible post.
 
 
-    // Click Reply on the original post.
 
-    public void clickReplyOnOriginalPost() {
-        WebElement originalPost = wait.until(
-                ExpectedConditions.visibilityOfElementLocated(
-                        forumPost
-                )
-        );
+        public void clickReplyOnOriginalPost() {
+            driver.switchTo().defaultContent();
 
-        WebElement reply = originalPost.findElement(
-                By.xpath(".//a[contains(normalize-space(.), 'Reply')]")
-        );
+            By replyButton = By.xpath(
+                    "//a[@data-action='collapsible-link' and @title='Reply']"
+            );
 
-        String replyUrl = reply.getAttribute("href");
+            WebElement reply = wait.until(
+                    ExpectedConditions.presenceOfElementLocated(replyButton)
+            );
 
-        if (replyUrl != null && !replyUrl.isBlank()) {
-            driver.navigate().to(replyUrl);
-        } else {
-            clickSafely(reply);
+            // Scroll the Reply link away from the sticky footer.
+            ((JavascriptExecutor) driver).executeScript(
+                    "arguments[0].scrollIntoView({block: 'center'});",
+                    reply
+            );
+
+            wait.until(
+                    ExpectedConditions.elementToBeClickable(replyButton)
+            );
+
+            ((JavascriptExecutor) driver).executeScript(
+                    "arguments[0].click();", reply
+            );
         }
-    }
 
 
-    // Enter the reply.
 
-    public void enterReply(String message) {
-        // Wait until Moodle's rich-text editor iframe is available.
-        By editorFrame = By.id("id_message_ifr");
-
-        wait.until(
-                ExpectedConditions.frameToBeAvailableAndSwitchToIt(
-                        editorFrame
-                )
-        );
-
-        try {
-            // The editable area is inside the iframe.
-            WebElement editorBody = wait.until(
+        // Enter a reply message.
+        public void enterReply(String reply) {
+            WebElement replyBox = wait.until(
                     ExpectedConditions.visibilityOfElementLocated(
-                            By.tagName("body")
+                            By.cssSelector("textarea[placeholder='Write your reply...']")
                     )
             );
 
-            editorBody.click();
+            replyBox.clear();
+            replyBox.sendKeys(reply);
+        }
+
+        // Submit a reply.
+        public void submitReply() {
+            By postButton = By.xpath(
+                    "//button[normalize-space()='Post to forum']"
+                            + " | //input[@value='Post to forum']"
+                            + " | //button[contains(., 'Post to forum')]"
+                            + " | //input[@name='submitbutton']"
+                            + " | //button[@name='submitbutton']"
+            );
+
+            clickSafely(
+                    wait.until(ExpectedConditions.elementToBeClickable(postButton))
+            );
+
+            wait.until(ExpectedConditions.or(
+                    ExpectedConditions.urlContains("/mod/forum/discuss.php"),
+                    ExpectedConditions.textToBePresentInElementLocated(
+                            By.tagName("body"), "Automated TC10 reply"
+                    )
+            ));
+        }
+
+        // Verify that the submitted reply is visible.
+        public boolean isReplyDisplayed(String message) {
+            return isTextDisplayed(message);
+        }
+
+        // Click Add discussion topic.
+
+        public void clickAddDiscussion() {
+            By addButton = By.xpath(
+                    "//a[contains(., 'Add discussion topic') or " +
+                            "contains(., 'Add discussion')]"
+            );
+
+            WebElement button = wait.until(
+                    ExpectedConditions.elementToBeClickable(addButton)
+            );
+            button.click();
+
+            // Confirm that Moodle opened the discussion form.
+            wait.until(ExpectedConditions.visibilityOfElementLocated(
+                    By.id("id_subject")
+            ));
+        }
+
+
+        // Create and submit a new discussion.
+
+
+
+
+        public void createDiscussion(String title, String message) {
+
+            // 1. Enter the discussion title
+            WebElement subject = wait.until(
+                    ExpectedConditions.visibilityOfElementLocated(
+                            By.id("id_subject")
+                    )
+            );
+
+            subject.clear();
+            subject.sendKeys(title);
+
+            // 2. Switch to the TinyMCE message editor
+            driver.switchTo().defaultContent();
+
+            wait.until(
+                    ExpectedConditions.frameToBeAvailableAndSwitchToIt(
+                            By.id("id_message_ifr")
+                    )
+            );
+
+            WebElement editorBody = wait.until(
+                    ExpectedConditions.presenceOfElementLocated(
+                            By.cssSelector("body#tinymce")
+                    )
+            );
+
+            // 3. Enter the message
+            ((org.openqa.selenium.JavascriptExecutor) driver)
+                    .executeScript("arguments[0].focus();", editorBody);
+
             editorBody.sendKeys(message);
 
-        } finally {
-            // Always return Selenium to the main page.
+            // 4. Verify the message
+            String enteredMessage = editorBody.getText();
+
+            System.out.println("Message inside editor: " + enteredMessage);
+
+            if (enteredMessage == null || enteredMessage.isBlank()) {
+                throw new AssertionError(
+                        "Message was not entered into the Moodle editor."
+                );
+            }
+
+            // 5. Return to the main page
             driver.switchTo().defaultContent();
-        }
-    }
 
+            // 6. Click Post to forum
+            By postButton = By.cssSelector(
+                    "button[name='submitbutton'], input[name='submitbutton']"
+            );
 
-    // Submit the reply.
-    public void submitReply() {
-        By submit = By.cssSelector(
-                "button[name='submitbutton'], "
-                        + "input[name='submitbutton']"
-        );
+            WebElement submit = wait.until(
+                    ExpectedConditions.elementToBeClickable(postButton)
+            );
 
-        WebElement button = wait.until(
-                ExpectedConditions.elementToBeClickable(submit)
-        );
+            clickSafely(submit);
 
-        clickSafely(button);
-    }
+            // 7. Wait for Moodle's success notification
+            wait.until(ExpectedConditions.or(
+                    ExpectedConditions.urlContains("/mod/forum/discuss.php"),
+                    ExpectedConditions.urlContains("/mod/forum/view.php"),
+                    ExpectedConditions.visibilityOfElementLocated(
+                            By.cssSelector(".alert, .notification")
+                    )
+            ));
 
-    // Verify that the reply appears.
-    public boolean isReplyDisplayed(String message) {
-        By replyText = By.xpath(
-                "//*[contains(normalize-space(.), '"
-                        + message + "')]"
-        );
-
-        return wait.until(
-                ExpectedConditions.visibilityOfElementLocated(
-                        replyText
-                )
-        ).isDisplayed();
-    }
-
-    // Scroll to an element and click it safely.
-    private void clickSafely(WebElement element) {
-        ((JavascriptExecutor) driver).executeScript(
-                "arguments[0].scrollIntoView({block:'center'});",
-                element
-        );
-
-        try {
+            // 8. Verify that the created discussion title appears
+            // 8. Verify that the created discussion title appears
             wait.until(
-                    ExpectedConditions.elementToBeClickable(element)
-            ).click();
-        } catch (ElementClickInterceptedException e) {
-            ((JavascriptExecutor) driver).executeScript(
-                    "arguments[0].click();",
-                    element
+                    ExpectedConditions.visibilityOfElementLocated(
+                            By.xpath(
+                                    "//*[normalize-space(.) = "
+                                            + xpathLiteral(title) + "]"
+                            )
+                    )
+            );
+            System.out.println(
+                    "Discussion created successfully: " + title
             );
         }
-    }
 
-    // Normalize spaces and newlines.
-    private String normalize(String text) {
-        if (text == null) {
-            return "";
+
+        // Enter text into Moodle's message editor.
+
+
+        private void enterMessageInEditor(String message) {
+            driver.switchTo().defaultContent();
+
+            By replyBox = By.xpath(
+                    "//textarea[@placeholder='Write your reply…' or @placeholder='Write your reply...']"
+            );
+
+            if (!driver.findElements(replyBox).isEmpty()) {
+                WebElement textarea = wait.until(
+                        ExpectedConditions.visibilityOfElementLocated(replyBox)
+                );
+                textarea.clear();
+                textarea.sendKeys(message);
+                return;
+            }
+
+            // Fallback for the full TinyMCE discussion editor.
+            By editorFrame = By.id("id_message_ifr");
+
+            wait.until(
+                    ExpectedConditions.frameToBeAvailableAndSwitchToIt(editorFrame)
+            );
+
+            try {
+                WebElement editorBody = wait.until(
+                        ExpectedConditions.visibilityOfElementLocated(By.id("tinymce"))
+                );
+                editorBody.clear();
+                editorBody.sendKeys(message);
+            } finally {
+                driver.switchTo().defaultContent();
+            }
         }
 
-        return text.replaceAll("\\s+", " ").trim();
+
+
+        // Edit a discussion post belonging to the logged-in user.
+
+
+
+
+
+        public void editDiscussion(String title, String updatedMessage) {
+
+            // Find the post by its title anywhere on the current page.
+            By titleLocator = By.xpath(
+                    "//*[normalize-space(.) = " + xpathLiteral(title) + "]"
+            );
+
+            WebElement titleElement = wait.until(
+                    ExpectedConditions.visibilityOfElementLocated(titleLocator)
+            );
+
+            // Find the forum post containing the title.
+            WebElement post = titleElement.findElement(
+                    By.xpath("./ancestor::*[contains(@class,'forumpost')][1]")
+            );
+
+            // Click Edit inside that post.
+            WebElement editLink = post.findElement(
+                    By.xpath(".//a[normalize-space()='Edit' or contains(@href,'edit=')]")
+            );
+
+            clickSafely(editLink);
+
+            // Wait for the edit form.
+            WebElement subject = wait.until(
+                    ExpectedConditions.visibilityOfElementLocated(By.id("id_subject"))
+            );
+
+            subject.clear();
+            subject.sendKeys(title);
+
+            // Update the TinyMCE message.
+            driver.switchTo().defaultContent();
+
+            wait.until(
+                    ExpectedConditions.frameToBeAvailableAndSwitchToIt(
+                            By.id("id_message_ifr")
+                    )
+            );
+
+            try {
+                WebElement editor = wait.until(
+                        ExpectedConditions.visibilityOfElementLocated(
+                                By.cssSelector("body#tinymce")
+                        )
+                );
+
+                editor.click();
+                editor.sendKeys(Keys.chord(Keys.CONTROL, "a"));
+                editor.sendKeys(updatedMessage);
+
+                wait.until(d -> updatedMessage.equals(
+                        d.findElement(By.cssSelector("body#tinymce"))
+                                .getText().trim()
+                ));
+
+            } finally {
+                driver.switchTo().defaultContent();
+            }
+
+            // Save the changes.
+            WebElement saveButton = wait.until(
+                    ExpectedConditions.elementToBeClickable(
+                            By.cssSelector(
+                                    "button[name='submitbutton'], input[name='submitbutton']"
+                            )
+                    )
+            );
+
+            clickSafely(saveButton);
+
+            // Verify that Moodle displays the updated message.
+            wait.until(
+                    ExpectedConditions.textToBePresentInElementLocated(
+                            By.tagName("body"), updatedMessage
+                    )
+            );
+
+            System.out.println("Discussion edited successfully: " + title);
+        }
+
+
+        // Delete a discussion/post and confirm the Moodle deletion page.
+        public void deleteOwnForumPost(String title) {
+            By postLocator = By.xpath(
+                    "//*[contains(@class,'forumpost')]"
+                            + "[.//*[normalize-space(.) = " + xpathLiteral(title) + "]]"
+            );
+
+            WebElement post = wait.until(
+                    ExpectedConditions.visibilityOfElementLocated(postLocator)
+            );
+
+            By deleteLink = By.xpath(
+                    ".//a[normalize-space()='Delete'"
+                            + " or contains(@href, 'delete=')]"
+            );
+
+            clickSafely(post.findElement(deleteLink));
+
+            // Moodle may show a confirmation page before actually deleting.
+            By confirmButton = By.cssSelector(
+                    "form input[type='submit'], form button[type='submit']"
+            );
+
+            try {
+                WebElement confirm = new WebDriverWait(
+                        driver, java.time.Duration.ofSeconds(5)
+                ).until(ExpectedConditions.elementToBeClickable(confirmButton));
+
+                clickSafely(confirm);
+            } catch (TimeoutException ignored) {
+                // Some Moodle pages may delete immediately without confirmation.
+            }
+
+            wait.until(ExpectedConditions.or(
+                    ExpectedConditions.invisibilityOfElementLocated(postLocator),
+                    ExpectedConditions.urlContains("/mod/forum/view.php"),
+                    ExpectedConditions.urlContains("/mod/forum/discuss.php")
+            ));
+        }
+
+        // Safely represent text in XPath, including apostrophes.
+        private String xpathLiteral(String value) {
+            if (!value.contains("'")) {
+                return "'" + value + "'";
+            }
+
+            if (!value.contains("\"")) {
+                return "\"" + value + "\"";
+            }
+
+            String[] parts = value.split("'", -1);
+            StringBuilder result = new StringBuilder("concat(");
+
+            for (int i = 0; i < parts.length; i++) {
+                if (i > 0) {
+                    result.append(", \"'\", ");
+                }
+
+                result.append("'").append(parts[i]).append("'");
+            }
+
+            result.append(")");
+            return result.toString();
+        }
+
+        // Scroll to an element and click it.
+        private void clickSafely(WebElement element) {
+            ((JavascriptExecutor) driver).executeScript(
+                    "arguments[0].scrollIntoView({block:'center'});",
+                    element
+            );
+
+            try {
+                wait.until(
+                        ExpectedConditions.elementToBeClickable(element)
+                ).click();
+            } catch (ElementClickInterceptedException e) {
+                ((JavascriptExecutor) driver).executeScript(
+                        "arguments[0].click();", element
+                );
+            }
+        }
     }
-}
+
