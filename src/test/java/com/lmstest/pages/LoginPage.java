@@ -3,6 +3,7 @@ package com.lmstest.pages;
 import com.lmstest.base.BaseTest;
 
 import org.openqa.selenium.By;
+import org.openqa.selenium.StaleElementReferenceException;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
@@ -45,6 +46,17 @@ public class LoginPage {
     }
 
     public void login(String username, String password) {
+        try {
+            fillCredentials(username, password);
+        } catch (StaleElementReferenceException e) {
+            // The login page re-rendered while typing; fill the fields again on the fresh DOM
+            fillCredentials(username, password);
+        }
+
+        clickLogin();
+    }
+
+    private void fillCredentials(String username, String password) {
         wait.until(
                 ExpectedConditions.visibilityOfElementLocated(usernameField)
         ).clear();
@@ -53,8 +65,6 @@ public class LoginPage {
 
         driver.findElement(passwordField).clear();
         driver.findElement(passwordField).sendKeys(password);
-
-        clickLogin();
     }
 
     public void loginAs(String username, String password) {
