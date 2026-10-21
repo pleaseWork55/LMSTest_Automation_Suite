@@ -10,16 +10,11 @@ import java.util.stream.Collectors;
 /**
  * Page Object for Moodle quiz interactions.
  *
- * Full navigation flow:
- *   1. Login                                     (LoginPage)
- *   2. My Courses                                (MyCoursesPage)
- *   3. Open a Course  → /course/view.php?id=XX   (MyCoursesPage.openCourse)
- *   4. Course Overview → /course/overview.php?id=XX
- *   5. Click the "Quizzes" collapsible toggle    → #quiz_overview_collapsible
- *   6. Wait for #quiz_overview panel to expand
- *   7. Collect quiz links (a.activityname)
- *   8. Navigate to first quiz /mod/quiz/view.php?id=YYY
- *   9. Attempt → Answer → Finish → Submit → Result
+ * Test Cases:
+ *   TC07: Start and answer a quiz
+ *   TC08: Submit quiz and check result
+ *   TC19: Quiz info shown before starting
+ *   TC20: Review a finished quiz attempt
  */
 public class QuizPage {
 
@@ -32,54 +27,28 @@ public class QuizPage {
     // LOCATORS
     // ═════════════════════════════════════════════════════════════════════════
 
-    // ── Course Overview page (/course/overview.php?id=XX) ────────────────────
-
-    /**
-     * The "Quizzes" section toggle button.
-     *
-     * Stable anchors from the real HTML:
-     *   - Outer div id="quiz_overview_collapsible"  (never changes)
-     *   - The <a> inside it has  href="#quiz_overview"  and
-     *     data-bs-toggle="collapse"
-     *
-     * Primary:  the <a> anchor inside the stable collapsible container
-     * Fallback: any collapse-toggle whose href points to #quiz_overview
-     */
     private final By quizSectionToggle = By.cssSelector(
             "#quiz_overview_collapsible a[href='#quiz_overview']"
     );
 
-    /**
-     * The collapsible content panel that holds the quiz table.
-     * id="quiz_overview" — stable, never changes.
-     * We wait for it to have the Bootstrap "show" class after the click.
-     */
     private final By quizOverviewPanel = By.cssSelector(
             "#quiz_overview"
     );
 
-    /**
-     * The data-loading container inside the panel.
-     * We wait for data-loaded="true" before reading links.
-     */
     private final By quizPanelLoaded = By.cssSelector(
             "#quiz_overview [data-region='loading-icon-container'][data-loaded='true']"
     );
 
-    /**
-     * Quiz activity links inside the expanded panel.
-     * Each quiz row has:
-     *   <a href="…/mod/quiz/view.php?id=NNN" class="activityname">…</a>
-     * inside  td[data-mdl-overview-item="name"]
-     */
     private final By quizActivityLinks = By.cssSelector(
             "#quiz_overview td[data-mdl-overview-item='name'] a.activityname"
     );
 
-    // ── Quiz intro page (/mod/quiz/view.php) ─────────────────────────────────
-
     private final By quizTitle      = By.cssSelector(
             "h1, .page-header-headings h1"
+    );
+
+    private final By quizDescription = By.cssSelector(
+            ".quizinfo, .quiz-description, .generalbox.info"
     );
 
     private final By attemptQuizBtn = By.cssSelector(
@@ -89,8 +58,6 @@ public class QuizPage {
                     "input[value='Re-attempt quiz'], "            +
                     "[data-action='attempt-quiz-button']"
     );
-
-    // ── Attempt page (/mod/quiz/attempt.php) ─────────────────────────────────
 
     private final By radioOptions    = By.cssSelector(
             "input[type='radio'], .answer input[type='radio']"
@@ -113,15 +80,6 @@ public class QuizPage {
                     ".endtestlink"
     );
 
-    // ── Summary page (/mod/quiz/summary.php) ─────────────────────────────────
-
-    /**
-     * Submit button on the quiz summary page.
-     * Handles multiple button formats:
-     *   - input[value='Submit all and finish']
-     *   - button[data-action='submit-quiz']
-     *   - button.btn-primary[type='submit'] (Moodle 4.x format)
-     */
     private final By submitAllBtn = By.xpath(
             "//button[@type='submit' and contains(text(), 'Submit all and finish')] | " +
                     "//button[@type='submit' and contains(@class, 'btn-primary')] | " +
@@ -137,8 +95,6 @@ public class QuizPage {
                     "#id_submitbutton"
     );
 
-    // ── Result / Review page (/mod/quiz/review.php) ───────────────────────────
-
     private final By gradeSummary = By.cssSelector(
             ".quizreviewsummary td, "           +
                     "table.generaltable tbody tr td, "  +
@@ -147,6 +103,14 @@ public class QuizPage {
 
     private final By reviewHeading = By.cssSelector(
             "h1, .page-header-headings h1"
+    );
+
+    private final By scoreDisplay = By.cssSelector(
+            ".quizreviewsummary, .gradetable, .grade-info"
+    );
+
+    private final By questionReview = By.cssSelector(
+            ".que, .question, .review-question"
     );
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -161,11 +125,7 @@ public class QuizPage {
     // ═════════════════════════════════════════════════════════════════════════
 
     /**
-     * Step 4 – Extract the course ID from the current /course/view.php?id=XX
-     * URL and navigate to /course/overview.php?id=XX.
-     *
-     * Must be called AFTER MyCoursesPage.openCourse() has landed the browser
-     * on /course/view.php?id=XX.
+     * Navigate to course overview page
      */
     public void goToCourseOverview() {
         String currentUrl = driver.getCurrentUrl();
@@ -184,7 +144,7 @@ public class QuizPage {
     }
 
     /**
-     * Parses the numeric id parameter from a /course/view.php?id=XX URL.
+     * Extract course ID from URL
      */
     private String extractCourseId(String url) {
         if (!url.contains("/course/view.php")) {
@@ -192,11 +152,10 @@ public class QuizPage {
                     "goToCourseOverview() must be called while on a course page "
                             + "(/course/view.php?id=XX). Current URL: " + url);
         }
-        // Everything after '?'  →  "id=23"  or  "id=23&section=1"
         String query = url.substring(url.indexOf('?') + 1);
         for (String param : query.split("&")) {
             if (param.startsWith("id=")) {
-                return param.substring(3);   // "23"
+                return param.substring(3);
             }
         }
         throw new AssertionError(
@@ -204,41 +163,33 @@ public class QuizPage {
     }
 
     /**
-     * Step 5 – Click the "Quizzes" collapsible section toggle on the overview
-     * page so that the quiz table becomes visible.
-     *
-     * The toggle is the <a> inside #quiz_overview_collapsible that has
-     * href="#quiz_overview" and data-bs-toggle="collapse".
-     *
-     * Only clicks if the panel is not already expanded (aria-expanded="false").
-     * Uses JavaScript click as fallback if regular click is intercepted.
+     * Open quiz section dropdown
      */
     public void openQuizSectionDropdown() {
-        // Wait for the toggle to be present on the page
-        wait.until(ExpectedConditions.presenceOfElementLocated(quizSectionToggle));
+        try {
+            wait.until(ExpectedConditions.presenceOfElementLocated(quizSectionToggle));
+        } catch (TimeoutException e) {
+            System.out.println("QuizPage – quiz section toggle not found on this course");
+            throw new AssertionError("No quizzes available in this course");
+        }
 
         WebElement toggle = driver.findElement(quizSectionToggle);
 
-        // Aggressive scroll to center the element
         ((JavascriptExecutor) driver).executeScript(
                 "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});" +
-                        "window.scrollBy(0, -150);",  // Extra scroll up to avoid bottom overlap
+                        "window.scrollBy(0, -150);",
                 toggle);
 
-        // Give the page time to settle after scrolling
         try { Thread.sleep(800); } catch (InterruptedException ignored) {}
 
-        // Check if already expanded
         String expanded = toggle.getAttribute("aria-expanded");
         System.out.println("QuizPage – quiz section aria-expanded = " + expanded);
 
         if ("false".equals(expanded)) {
             try {
-                // First attempt: regular Selenium click
                 toggle.click();
                 System.out.println("QuizPage – toggle clicked (regular click)");
             } catch (org.openqa.selenium.ElementClickInterceptedException e) {
-                // Fallback: JavaScript click if regular click is intercepted
                 System.out.println("QuizPage – regular click intercepted, using JavaScript click");
                 ((JavascriptExecutor) driver).executeScript(
                         "arguments[0].click();",
@@ -248,29 +199,20 @@ public class QuizPage {
             System.out.println("QuizPage – quiz section already expanded, skipping click");
         }
 
-        // Wait a moment for Bootstrap collapse animation
         try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
 
-        // Wait for the Bootstrap collapse panel to receive the "show" class
         wait.until(ExpectedConditions.attributeContains(
                 quizOverviewPanel, "class", "show"));
         System.out.println("QuizPage – quiz panel is now expanded (#quiz_overview has 'show')");
 
-        // Wait for the AJAX data-loaded="true" flag so links are in the DOM
         wait.until(ExpectedConditions.presenceOfElementLocated(quizPanelLoaded));
         System.out.println("QuizPage – quiz panel data fully loaded");
     }
 
     /**
-     * Step 6 – After the panel is expanded, collect all quiz hrefs from the
-     * activity-name links inside the table.
-     *
-     * Returns URLs such as:
-     *   https://school.moodledemo.net/mod/quiz/view.php?id=723
-     *   https://school.moodledemo.net/mod/quiz/view.php?id=757
+     * Get quiz URLs from overview
      */
     public List<String> getQuizUrlsFromOverview() {
-        // Links must already be visible (openQuizSectionDropdown called first)
         wait.until(ExpectedConditions.presenceOfElementLocated(quizActivityLinks));
 
         List<String> urls = driver.findElements(quizActivityLinks)
@@ -286,56 +228,151 @@ public class QuizPage {
     }
 
     /**
-     * Master convenience method used by both TC07 and TC08.
-     *
-     * Precondition : browser is on /course/view.php?id=XX  (@BeforeEach)
-     *
-     * Full steps:
-     *   4. goToCourseOverview()         → /course/overview.php?id=XX
-     *   5. openQuizSectionDropdown()    → expands #quiz_overview panel
-     *   6. getQuizUrlsFromOverview()    → collects a.activityname hrefs
-     *   7. driver.get(firstQuizUrl)     → /mod/quiz/view.php?id=YYY
-     *   8. waitUntilIntroLoaded()
-     *
-     * Returns the quiz title shown on the intro page.
+     * Navigate to quiz by index
      */
-    public String navigateToFirstQuizViaOverview() {
-        // Step 4
+    public String navigateToQuizByIndex(int quizIndex) {
         goToCourseOverview();
-
-        // Step 5
         openQuizSectionDropdown();
 
-        // Step 6
         List<String> quizUrls = getQuizUrlsFromOverview();
         if (quizUrls.isEmpty()) {
             throw new AssertionError(
-                    "No quiz URLs found inside #quiz_overview after expanding "
-                            + "the collapsible section. "
+                    "No quiz URLs found. Current course may not have quizzes. "
                             + "Current URL: " + driver.getCurrentUrl());
         }
 
-        // Step 7 – open the first quiz
-        String firstQuizUrl = quizUrls.get(0);
-        System.out.println("QuizPage – opening: " + firstQuizUrl);
-        driver.get(firstQuizUrl);
+        if (quizIndex >= quizUrls.size()) {
+            throw new AssertionError(
+                    "Quiz index " + quizIndex + " is out of bounds. "
+                            + "Only " + quizUrls.size() + " quizzes found.");
+        }
 
-        // Step 8
+        String quizUrl = quizUrls.get(quizIndex);
+        System.out.println("QuizPage – opening quiz at index " + quizIndex + ": " + quizUrl);
+        driver.get(quizUrl);
+
         waitUntilIntroLoaded();
         return getQuizTitle();
+    }
+
+    /**
+     * Navigate to first quiz
+     */
+    public String navigateToFirstQuizViaOverview() {
+        return navigateToQuizByIndex(0);
     }
 
     // ═════════════════════════════════════════════════════════════════════════
     // QUIZ INTRO PAGE
     // ═════════════════════════════════════════════════════════════════════════
 
+    /**
+     * Wait for quiz intro page to load
+     */
     public void waitUntilIntroLoaded() {
         wait.until(ExpectedConditions.urlContains("/mod/quiz/view.php"));
         wait.until(ExpectedConditions.presenceOfElementLocated(quizTitle));
+        System.out.println("QuizPage – quiz intro page loaded");
     }
 
+    /**
+     * Get quiz title
+     */
     public String getQuizTitle() {
         return driver.findElement(quizTitle).getText().trim();
+    }
+
+    /**
+     * Get quiz description
+     */
+    public String getQuizDescription() {
+        try {
+            wait.until(ExpectedConditions.presenceOfElementLocated(quizDescription));
+            return driver.findElement(quizDescription).getText().trim();
+        } catch (TimeoutException e) {
+            System.out.println("QuizPage – no quiz description found");
+            return "";
+        }
+    }
+
+    /**
+     * Check if attempt button is visible
+     */
+    public boolean isAttemptButtonVisible() {
+        try {
+            wait.until(ExpectedConditions.visibilityOfElementLocated(attemptQuizBtn));
+            System.out.println("QuizPage – attempt button is visible");
+            return true;
+        } catch (TimeoutException e) {
+            System.out.println("QuizPage – attempt button NOT visible");
+            return false;
+        }
+    }
+
+    /**
+     * Check if re-attempt button is visible (XPath version)
+     */
+    public boolean isReAttemptButtonVisible() {
+        try {
+            By reAttemptBtn = By.xpath(
+                    "//input[@value='Re-attempt quiz'] | " +
+                            "//button[contains(text(), 'Re-attempt')]"
+            );
+            wait.until(ExpectedConditions.visibilityOfElementLocated(reAttemptBtn));
+            System.out.println("QuizPage – re-attempt button is visible");
+            return true;
+        } catch (TimeoutException e) {
+            System.out.println("QuizPage – re-attempt button not visible");
+            return false;
+        }
+    }
+
+    /**
+     * Get quiz intro info
+     */
+    public QuizInfo getQuizIntroInfo() {
+        String title = getQuizTitle();
+        String description = getQuizDescription();
+        boolean attemptVisible = isAttemptButtonVisible();
+
+        return new QuizInfo(title, description, attemptVisible);
+    }
+
+    /**
+     * Verify quiz info is displayed
+     */
+    public QuizInfo verifyQuizInfoDisplayed() {
+        System.out.println("QuizPage – verifying quiz info is displayed...");
+
+        String title = getQuizTitle();
+        System.out.println("QuizPage – quiz title: " + title);
+
+        String description = getQuizDescription();
+        System.out.println("QuizPage – quiz description length: " + description.length() + " chars");
+
+        boolean buttonVisible = isAttemptButtonVisible();
+        System.out.println("QuizPage – attempt button visible: " + buttonVisible);
+
+        return new QuizInfo(title, description, buttonVisible);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // TC20  –  REVIEW A FINISHED QUIZ ATTEMPT
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Complete and review quiz attempt
+     */
+    public void completeAndReviewQuizAttempt() {
+        System.out.println("QuizPage – completing quiz attempt for review...");
+
+        clickAttemptQuiz();
+        answerAllRemainingQuestions();
+        clickFinishAttempt();
+        submitAllAndFinish();
+
+        System.out.println("QuizPage – quiz attempt completed and submitted");
+        System.out.println("QuizPage – currently on review page: " + driver.getCurrentUrl());
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -343,21 +380,31 @@ public class QuizPage {
     // ═════════════════════════════════════════════════════════════════════════
 
     /**
-     * Clicks the "Attempt quiz" button and handles any confirmation modal.
-     * Waits for the attempt page to load.
+     * Click attempt quiz button (handles both Attempt and Re-attempt)
      */
     public void clickAttemptQuiz() {
-        wait.until(ExpectedConditions.elementToBeClickable(attemptQuizBtn));
-        driver.findElement(attemptQuizBtn).click();
-        System.out.println("QuizPage – 'Attempt quiz' button clicked");
+        try {
+            wait.until(ExpectedConditions.elementToBeClickable(attemptQuizBtn));
+            driver.findElement(attemptQuizBtn).click();
+            System.out.println("QuizPage – 'Attempt quiz' button clicked");
+        } catch (TimeoutException e) {
+            System.out.println("QuizPage – Attempt button not clickable, trying re-attempt...");
+            By reAttemptBtn = By.xpath("//input[@value='Re-attempt quiz']");
+            try {
+                wait.until(ExpectedConditions.elementToBeClickable(reAttemptBtn));
+                driver.findElement(reAttemptBtn).click();
+                System.out.println("QuizPage – 'Re-attempt quiz' button clicked");
+            } catch (TimeoutException e2) {
+                throw new AssertionError("No attempt or re-attempt button found");
+            }
+        }
 
         handleAttemptConfirmationIfPresent();
         waitUntilAttemptLoaded();
     }
 
     /**
-     * Handles the optional confirmation modal that may appear after clicking
-     * "Attempt quiz". If no modal is present within 4 seconds, continues.
+     * Handle attempt confirmation modal if present
      */
     private void handleAttemptConfirmationIfPresent() {
         try {
@@ -376,7 +423,7 @@ public class QuizPage {
     }
 
     /**
-     * Waits until the browser navigates to the attempt page (/mod/quiz/attempt.php).
+     * Wait for attempt page to load
      */
     public void waitUntilAttemptLoaded() {
         wait.until(ExpectedConditions.urlContains("/mod/quiz/attempt.php"));
@@ -384,43 +431,35 @@ public class QuizPage {
     }
 
     /**
-     * Checks if the current page is the quiz attempt page.
+     * Check if on attempt page
      */
     public boolean isOnAttemptPage() {
         return driver.getCurrentUrl().contains("/mod/quiz/attempt.php");
     }
 
     /**
-     * Selects the first radio or checkbox answer on the current attempt page.
-     * Returns true if a selectable option was found and clicked.
-     *
-     * Handles visibility and interactability issues by using JavaScript click
-     * and ensuring the element is scrolled into full view.
+     * Select first answer on attempt page
      */
     public boolean selectFirstAnswer() {
-        // Wait for the attempt page to fully load (not just URL)
         wait.until(ExpectedConditions.presenceOfElementLocated(
-                By.cssSelector("div.que")));  // Wait for ANY question div to appear
+                By.cssSelector("div.que")));
 
         System.out.println("QuizPage – question container found, waiting for form inputs");
 
         try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
 
-        // Try to find ANY radio button on the page (don't require form#responseform)
         wait.until(ExpectedConditions.presenceOfElementLocated(
                 By.cssSelector("input[type='radio']")));
 
         System.out.println("QuizPage – radio inputs are now available");
         try { Thread.sleep(500); } catch (InterruptedException ignored) {}
 
-        // ── Try radio buttons first ──────────────────────────────────────────
         List<WebElement> radios = driver.findElements(radioOptions);
         System.out.println("QuizPage – found " + radios.size() + " radio button(s)");
 
         if (!radios.isEmpty()) {
             WebElement firstRadio = radios.get(0);
 
-            // Scroll into view
             ((JavascriptExecutor) driver).executeScript(
                     "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});" +
                             "window.scrollBy(0, -100);",
@@ -428,7 +467,6 @@ public class QuizPage {
 
             try { Thread.sleep(500); } catch (InterruptedException ignored) {}
 
-            // Try JavaScript click first
             try {
                 ((JavascriptExecutor) driver).executeScript(
                         "arguments[0].click();",
@@ -440,7 +478,6 @@ public class QuizPage {
                 System.out.println("QuizPage – JS click failed: " + e1.getMessage());
             }
 
-            // Fallback: Selenium regular click
             try {
                 wait.until(ExpectedConditions.elementToBeClickable(firstRadio));
                 firstRadio.click();
@@ -453,7 +490,6 @@ public class QuizPage {
             }
         }
 
-        // ── Fall back to checkboxes ──────────────────────────────────────────
         List<WebElement> checks = driver.findElements(checkboxOptions);
         System.out.println("QuizPage – found " + checks.size() + " checkbox(es)");
 
@@ -495,7 +531,7 @@ public class QuizPage {
     }
 
     /**
-     * Checks if any radio or checkbox answer is currently selected on the page.
+     * Check if answer is selected
      */
     public boolean isAnswerSelected() {
         for (WebElement r : driver.findElements(radioOptions))
@@ -510,8 +546,7 @@ public class QuizPage {
     // ═════════════════════════════════════════════════════════════════════════
 
     /**
-     * Answers all remaining pages of the quiz by selecting the first option on
-     * each page, then clicking "Next page" until the finish button appears.
+     * Answer all remaining questions
      */
     public void answerAllRemainingQuestions() {
         int safetyCounter = 0;
@@ -520,22 +555,18 @@ public class QuizPage {
             safetyCounter++;
             System.out.println("QuizPage – answering page " + safetyCounter);
 
-            // Answer current page's question(s)
             selectFirstAnswer();
 
-            // Look for "Next page" button
             List<WebElement> nextBtns = driver.findElements(nextPageBtn);
 
             if (!nextBtns.isEmpty()) {
                 WebElement nextBtn = nextBtns.get(0);
 
-                // Check if button is actually visible/displayed
                 if (nextBtn.isDisplayed()) {
                     System.out.println("QuizPage – 'Next page' button found, clicking it");
 
                     try { Thread.sleep(300); } catch (InterruptedException ignored) {}
 
-                    // Scroll the button into view
                     ((JavascriptExecutor) driver).executeScript(
                             "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});" +
                                     "window.scrollBy(0, -150);",
@@ -543,7 +574,6 @@ public class QuizPage {
 
                     try { Thread.sleep(500); } catch (InterruptedException ignored) {}
 
-                    // Try JavaScript click first (more reliable)
                     try {
                         ((JavascriptExecutor) driver).executeScript(
                                 "arguments[0].click();",
@@ -560,7 +590,6 @@ public class QuizPage {
                         }
                     }
 
-                    // Wait for page to load
                     try { Thread.sleep(800); } catch (InterruptedException ignored) {}
                 } else {
                     System.out.println("QuizPage – 'Next page' button exists but not displayed");
@@ -577,20 +606,17 @@ public class QuizPage {
     }
 
     /**
-     * Clicks "Finish attempt …" to navigate from the last question page to the
-     * attempt summary page. Also handles the case where we're already on summary.
+     * Click finish attempt
      */
     public void clickFinishAttempt() {
         String currentUrl = driver.getCurrentUrl();
         System.out.println("QuizPage – clickFinishAttempt() called, current URL: " + currentUrl);
 
-        // If we're already on summary page, skip this step
         if (currentUrl.contains("/mod/quiz/summary.php")) {
             System.out.println("QuizPage – already on summary page, skipping clickFinishAttempt");
             return;
         }
 
-        // If we're on attempt page, look for the Finish button
         if (currentUrl.contains("/mod/quiz/attempt.php")) {
             System.out.println("QuizPage – on attempt page, looking for 'Finish attempt' button");
 
@@ -600,7 +626,6 @@ public class QuizPage {
 
                 WebElement finishBtn = driver.findElement(finishAttemptBtn);
 
-                // Scroll into view
                 ((JavascriptExecutor) driver).executeScript(
                         "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});" +
                                 "window.scrollBy(0, -150);",
@@ -608,7 +633,6 @@ public class QuizPage {
 
                 try { Thread.sleep(500); } catch (InterruptedException ignored) {}
 
-                // JavaScript click
                 try {
                     ((JavascriptExecutor) driver).executeScript(
                             "arguments[0].click();",
@@ -627,7 +651,6 @@ public class QuizPage {
             }
         }
 
-        // Wait for navigation to summary or review page
         wait.until(ExpectedConditions.or(
                 ExpectedConditions.urlContains("/mod/quiz/summary.php"),
                 ExpectedConditions.urlContains("/mod/quiz/review.php")
@@ -637,24 +660,20 @@ public class QuizPage {
     }
 
     /**
-     * Submits the quiz and handles the confirmation modal.
-     * Waits for navigation to the result/review page.
+     * Submit all and finish
      */
     public void submitAllAndFinish() {
-        // First, wait for the page to be on summary page
         wait.until(ExpectedConditions.urlContains("/mod/quiz/summary.php"));
         System.out.println("QuizPage – on summary page, looking for submit button");
 
         try { Thread.sleep(800); } catch (InterruptedException ignored) {}
 
         try {
-            // Wait for submit button to be present (with extended timeout)
             WebElement submitBtn = wait.until(
                     ExpectedConditions.presenceOfElementLocated(submitAllBtn));
 
             System.out.println("QuizPage – submit button found, preparing to click");
 
-            // Scroll into view before clicking
             ((JavascriptExecutor) driver).executeScript(
                     "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});" +
                             "window.scrollBy(0, -150);",
@@ -662,7 +681,6 @@ public class QuizPage {
 
             try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
 
-            // Wait for any overlay/modal to disappear
             try {
                 wait.until(ExpectedConditions.invisibilityOfElementLocated(
                         By.cssSelector(".modal-backdrop, .fade.in")));
@@ -673,7 +691,6 @@ public class QuizPage {
 
             try { Thread.sleep(500); } catch (InterruptedException ignored) {}
 
-            // Use JavaScript click to bypass interception
             try {
                 ((JavascriptExecutor) driver).executeScript(
                         "arguments[0].click();",
@@ -693,7 +710,6 @@ public class QuizPage {
 
         try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
 
-        // Handle confirmation modal if present
         try {
             System.out.println("QuizPage – waiting for confirmation modal...");
             WebElement confirmBtn = wait.until(
@@ -701,14 +717,12 @@ public class QuizPage {
 
             System.out.println("QuizPage – confirmation button found, clicking");
 
-            // Scroll into view
             ((JavascriptExecutor) driver).executeScript(
                     "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});",
                     confirmBtn);
 
             try { Thread.sleep(500); } catch (InterruptedException ignored) {}
 
-            // Use JavaScript click for confirmation too
             try {
                 ((JavascriptExecutor) driver).executeScript(
                         "arguments[0].click();",
@@ -725,7 +739,6 @@ public class QuizPage {
             System.out.println("QuizPage – no confirmation modal found (skipped)");
         }
 
-        // Wait for navigation to result/review page
         wait.until(ExpectedConditions.or(
                 ExpectedConditions.urlContains("/mod/quiz/review.php"),
                 ExpectedConditions.urlContains("/mod/quiz/view.php")
@@ -735,7 +748,7 @@ public class QuizPage {
     }
 
     /**
-     * Checks if the browser is on the result/review page after quiz submission.
+     * Check if on result page
      */
     public boolean isOnResultPage() {
         String url = driver.getCurrentUrl();
@@ -744,8 +757,14 @@ public class QuizPage {
     }
 
     /**
-     * Collects all text from the grade summary table on the result page.
-     * Filters out empty rows.
+     * Check if on review page
+     */
+    public boolean isOnReviewPage() {
+        return driver.getCurrentUrl().contains("/mod/quiz/review.php");
+    }
+
+    /**
+     * Get result summary rows
      */
     public List<String> getResultSummaryRows() {
         return driver.findElements(gradeSummary).stream()
@@ -755,19 +774,136 @@ public class QuizPage {
     }
 
     /**
-     * Gets the main heading text from the result/review page.
+     * Get result page heading
      */
     public String getResultPageHeading() {
         wait.until(ExpectedConditions.presenceOfElementLocated(reviewHeading));
         return driver.findElement(reviewHeading).getText().trim();
     }
 
+    /**
+     * Get quiz score
+     */
+    public String getQuizScore() {
+        try {
+            wait.until(ExpectedConditions.presenceOfElementLocated(scoreDisplay));
+            String scoreText = driver.findElement(scoreDisplay).getText();
+            System.out.println("QuizPage – score/grade extracted");
+            return scoreText;
+        } catch (TimeoutException e) {
+            System.out.println("QuizPage – score display not found");
+            return "Score not displayed";
+        }
+    }
+
+    /**
+     * Get quiz result info
+     */
+    public QuizResult getQuizResultInfo() {
+        String heading = getResultPageHeading();
+        String score = getQuizScore();
+        List<String> summaryRows = getResultSummaryRows();
+
+        return new QuizResult(heading, score, summaryRows);
+    }
+
+    /**
+     * Get question count
+     */
+    public int getQuestionCount() {
+        List<WebElement> questions = driver.findElements(questionReview);
+        return questions.size();
+    }
+
+    /**
+     * Get review page info
+     */
+    public ReviewPageInfo getReviewPageInfo() {
+        String heading = getResultPageHeading();
+        String score = getQuizScore();
+        int questionCount = getQuestionCount();
+
+        return new ReviewPageInfo(heading, score, questionCount);
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
-    // HELPERS
+    // HELPER CLASSES
     // ═════════════════════════════════════════════════════════════════════════
 
     /**
-     * Helper method to scroll an element into the center of the viewport.
+     * Data class for quiz intro information
+     */
+    public static class QuizInfo {
+        public final String title;
+        public final String description;
+        public final boolean attemptVisible;
+
+        public QuizInfo(String title, String description, boolean attemptVisible) {
+            this.title = title;
+            this.description = description;
+            this.attemptVisible = attemptVisible;
+        }
+
+        @Override
+        public String toString() {
+            return "QuizInfo{" +
+                    "title='" + title + '\'' +
+                    ", description length=" + description.length() +
+                    ", attemptVisible=" + attemptVisible +
+                    '}';
+        }
+    }
+
+    /**
+     * Data class for quiz result information
+     */
+    public static class QuizResult {
+        public final String heading;
+        public final String score;
+        public final List<String> summaryRows;
+
+        public QuizResult(String heading, String score, List<String> summaryRows) {
+            this.heading = heading;
+            this.score = score;
+            this.summaryRows = summaryRows;
+        }
+
+        @Override
+        public String toString() {
+            return "QuizResult{" +
+                    "heading='" + heading + '\'' +
+                    ", score (first 100 chars)='" + (score.length() > 100 ? score.substring(0, 100) + "..." : score) + '\'' +
+                    ", summaryRows=" + summaryRows.size() +
+                    '}';
+        }
+    }
+
+    /**
+     * Data class for review page information
+     */
+    public static class ReviewPageInfo {
+        public final String heading;
+        public final String score;
+        public final int questionCount;
+
+        public ReviewPageInfo(String heading, String score, int questionCount) {
+            this.heading = heading;
+            this.score = score;
+            this.questionCount = questionCount;
+        }
+
+        @Override
+        public String toString() {
+            return "ReviewPageInfo{" +
+                    "heading='" + heading + '\'' +
+                    ", score (first 100 chars)='" + (score.length() > 100 ? score.substring(0, 100) + "..." : score) + '\'' +
+                    ", questionCount=" + questionCount +
+                    '}';
+        }
+    }
+
+    /**
+     * Scroll element into view
      */
     private void scrollIntoView(WebElement element) {
         ((JavascriptExecutor) driver)
