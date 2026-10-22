@@ -2,7 +2,6 @@ package com.lmstest.tests;
 
 import com.lmstest.base.BaseTest;
 import com.lmstest.pages.ForumPage;
-import com.lmstest.pages.LoginPage;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -10,91 +9,169 @@ import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.openqa.selenium.By;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.WebElement;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.support.ui.WebDriverWait;
+
+import java.time.Duration;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Forum test suite – covers the four required test cases:
+ * Forum test suite – four test cases run in sequence.
  *
  *   TC11 – Create a forum post
  *   TC10 – Reply to a forum post
  *   TC12 – Edit own forum post
  *   TC13 – Delete own forum post
  *
- * Each test is self-contained: it logs in, navigates to the target forum,
- * and performs its action in isolation.
- *
  * Target site : https://school.moodledemo.net
- * Credentials : student / moodle26  (published on the demo site)
+ * Credentials : student / moodle26
+ *
+ * Each test creates its own Chrome session, logs in with cookie-clearing
+ * (to bypass the SSO redirect to services.apps.moodle.com), and runs in
+ * SAME_THREAD mode to ensure sequential execution.
  */
+@Execution(ExecutionMode.SAME_THREAD)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ForumTests extends BaseTest {
 
-    // -----------------------------------------------------------------------
-    // Constants
-    // -----------------------------------------------------------------------
+    private static final String EXISTING_DISCUSSION_TITLE = "Pollution in the mountains";
 
-    /**
-     * An existing discussion that student can open and reply to (TC10).
-     * This discussion must already exist in the demo site's forum.
-     */
-    private static final String EXISTING_DISCUSSION_TITLE =
-            "Pollution in the mountains";
-
-    // -----------------------------------------------------------------------
-    // Setup
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // Per-test login — clears cookies to bypass SSO
+    // -------------------------------------------------------------------------
 
     @BeforeEach
     void login() {
-        // Use a longer wait for login to handle the Moodle demo site redirect chain
-        // (it bounces through services.apps.moodle.com before landing back).
-        WebDriverWait longWait = new WebDriverWait(
-                driver, java.time.Duration.ofSeconds(60));
-        LoginPage loginPage = new LoginPage(driver, longWait);
+        org.openqa.selenium.JavascriptExecutor js =
+                (org.openqa.selenium.JavascriptExecutor) driver;
 
-        try {
-            loginPage.open().loginAs(BaseTest.STUDENT_USER, BaseTest.STUDENT_PASS);
-        } catch (org.openqa.selenium.TimeoutException e) {
-            // Retry once more if the first attempt timed out
-            loginPage.open().loginAs(BaseTest.STUDENT_USER, BaseTest.STUDENT_PASS);
+        // Attempt login up to 4 times — each attempt fully clears state and retries
+        boolean loggedIn = false;
+        for (int attempt = 1; attempt <= 4 && !loggedIn; attempt++) {
+            System.out.println("=== Login attempt " + attempt + " ===");
+
+            // 1. Clear all browser state
+            driver.get("about:blank");
+            driver.manage().deleteAllCookies();
+            try {
+                driver.get(BaseTest.BASE_URL + "/login/index.php");
+                js.executeScript("try{localStorage.clear();}catch(e){}");
+                js.executeScript("try{sessionStorage.clear();}catch(e){}");
+            } catch (Exception ignored) {}
+            driver.manage().deleteAllCookies();
+
+            // 2. Navigate to login page and wait for native form (not SSO)
+            driver.get(BaseTest.BASE_URL + "/login/index.php");
+            boolean gotForm = false;
+            try {
+                gotForm = new WebDriverWait(driver, Duration.ofSeconds(20)).until(d -> {
+                    String u = d.getCurrentUrl();
+                    if (!u.contains("school.moodledemo.net") || u.contains("services.apps")) {
+                        return false;
+                    }
+                    List<WebElement> els = d.findElements(By.id("username"));
+                    return !els.isEmpty() && els.get(0).isDisplayed();
+                });
+            } catch (org.openqa.selenium.TimeoutException ignored) {}
+
+            if (!gotForm) {
+                System.out.println("Attempt " + attempt + ": login form not reached, URL: "
+                        + driver.getCurrentUrl());
+                continue; // clear state and retry
+            }
+
+            // 3. Fill credentials — always re-find elements fresh to avoid stale refs
+            try {
+                new WebDriverWait(driver, Duration.ofSeconds(10))
+                        .until(org.openqa.selenium.support.ui.ExpectedConditions
+                                .elementToBeClickable(By.id("username")))
+                        .clear();
+                driver.findElement(By.id("username")).sendKeys(BaseTest.STUDENT_USER);
+
+                new WebDriverWait(driver, Duration.ofSeconds(10))
+                        .until(org.openqa.selenium.support.ui.ExpectedConditions
+                                .elementToBeClickable(By.id("password")))
+                        .clear();
+                driver.findElement(By.id("password")).sendKeys(BaseTest.STUDENT_PASS);
+
+                driver.findElement(By.id("loginbtn")).click();
+            } catch (Exception e) {
+                System.out.println("Attempt " + attempt
+                        + ": error filling credentials: " + e.getMessage());
+                continue;
+            }
+
+            // 4. Wait up to 60 s to leave the login page
+            try {
+                new WebDriverWait(driver, Duration.ofSeconds(60))
+                        .until(d -> !d.getCurrentUrl().contains("/login/"));
+                loggedIn = true;
+            } catch (org.openqa.selenium.TimeoutException ignored) {
+                System.out.println("Attempt " + attempt
+                        + ": still on login after 60s, URL: " + driver.getCurrentUrl());
+            }
         }
 
-        // Use a 40-second wait throughout each test (the demo site is slow)
-        wait = new WebDriverWait(driver, java.time.Duration.ofSeconds(40));
+        if (!loggedIn) {
+            throw new RuntimeException(
+                    "Could not log in after 4 attempts. URL: " + driver.getCurrentUrl());
+        }
+
+        System.out.println("Logged in: " + driver.getCurrentUrl());
+
+        // If landed on services.apps.moodle.com (OAuth relay), navigate to school directly
+        if (driver.getCurrentUrl().contains("services.apps.moodle.com")) {
+            driver.get(BaseTest.BASE_URL + "/my/");
+            new WebDriverWait(driver, Duration.ofSeconds(30))
+                    .until(d -> d.getCurrentUrl().contains("school.moodledemo.net")
+                            && !d.getCurrentUrl().contains("/login/"));
+            System.out.println("Navigated to school: " + driver.getCurrentUrl());
+        }
+
+        wait = new WebDriverWait(driver, Duration.ofSeconds(40));
     }
 
-    /**
-     * Navigate to the target course then to the target forum.
-     * Uses the Moodle dashboard search link as primary path; falls back to
-     * MyCoursesPage if the dashboard course card is available.
-     * Returns a {@link ForumPage} ready for further interactions.
-     */
+    // -------------------------------------------------------------------------
+    // Forum navigation
+    // -------------------------------------------------------------------------
+
     private ForumPage openTargetForum() {
-        // Navigate directly to the forum using its known URL from a previous run.
-        // This avoids brittle dashboard link matching and is the most reliable approach.
-        // Forum URL discovered from earlier runs: /mod/forum/view.php?id=944
         driver.get(BaseTest.BASE_URL + "/mod/forum/view.php?id=944");
 
-        // Wait until the forum view page is loaded
-        wait.until(
-                org.openqa.selenium.support.ui.ExpectedConditions
-                        .urlContains("/mod/forum/view.php")
-        );
+        // Wait up to 30 s for the forum page on school.moodledemo.net.
+        // If we land on services.apps.moodle.com instead, navigate back.
+        new WebDriverWait(driver, Duration.ofSeconds(30))
+                .until(d -> {
+                    String u = d.getCurrentUrl();
+                    // If on services.apps.moodle.com, navigate back to school
+                    if (u.contains("services.apps.moodle.com")
+                            && u.contains("/mod/forum/view.php")) {
+                        d.get(BaseTest.BASE_URL + "/mod/forum/view.php?id=944");
+                        return false;
+                    }
+                    return u.contains("school.moodledemo.net")
+                            && u.contains("/mod/forum/view.php");
+                });
 
-        // If we got redirected to login, the session expired — fail with clear message
         if (driver.getCurrentUrl().contains("/login/")) {
             throw new IllegalStateException(
-                    "Session expired navigating to forum. URL: " + driver.getCurrentUrl());
+                    "Session expired: " + driver.getCurrentUrl());
         }
 
         return new ForumPage(driver, wait);
     }
 
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------------
     // TC11 – Create a forum post
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------------
 
     @Test
     @Order(1)
@@ -103,20 +180,19 @@ class ForumTests extends BaseTest {
         ForumPage forum = openTargetForum();
 
         String title   = "Automation post - " + System.currentTimeMillis();
-        String message = "This is an automated forum post created by TC11.";
+        String message = "Automated forum post created by TC11.";
 
         forum.clickAddDiscussion();
         forum.createDiscussion(title, message);
 
         assertTrue(
                 forum.isDiscussionDisplayed(title),
-                "TC11 FAIL – The newly created discussion title should be visible."
-        );
+                "TC11 FAIL – Newly created discussion title should be visible.");
     }
 
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------------
     // TC10 – Reply to a forum post
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------------
 
     @Test
     @Order(2)
@@ -124,24 +200,22 @@ class ForumTests extends BaseTest {
     void tc10_replyToForumPost() {
         ForumPage forum = openTargetForum();
 
-        // Open an existing discussion so we have a post to reply to
         forum.openDiscussion(EXISTING_DISCUSSION_TITLE);
 
         String reply = "Automated TC10 reply - " + System.currentTimeMillis();
 
         forum.clickReplyOnOriginalPost();
         forum.enterReply(reply);
-        forum.submitReply(reply);   // passes message to enable proper post-submit wait
+        forum.submitReply(reply);
 
         assertTrue(
                 forum.isReplyDisplayed(reply),
-                "TC10 FAIL – The submitted reply should be visible on the discussion page."
-        );
+                "TC10 FAIL – Submitted reply should be visible.");
     }
 
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------------
     // TC12 – Edit own forum post
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------------
 
     @Test
     @Order(3)
@@ -149,30 +223,26 @@ class ForumTests extends BaseTest {
     void tc12_editOwnForumPost() {
         ForumPage forum = openTargetForum();
 
-        // Create a post first so we have something to edit
-        String title          = "Automation edit - " + System.currentTimeMillis();
+        String title           = "Automation edit - " + System.currentTimeMillis();
         String originalMessage = "Original body - " + System.currentTimeMillis();
 
         forum.clickAddDiscussion();
         forum.createDiscussion(title, originalMessage);
 
-        // Now edit it
         String updatedMessage = "Updated body - " + System.currentTimeMillis();
         forum.editDiscussion(title, updatedMessage);
 
         assertTrue(
                 forum.isPostContentDisplayed(),
-                "TC12 FAIL – The forum post should still be visible after editing."
-        );
+                "TC12 FAIL – Post should still be visible after editing.");
         assertTrue(
                 forum.isTextDisplayed(updatedMessage),
-                "TC12 FAIL – The updated message body should be visible."
-        );
+                "TC12 FAIL – Updated message body should be visible.");
     }
 
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------------
     // TC13 – Delete own forum post
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------------
 
     @Test
     @Order(4)
@@ -180,19 +250,16 @@ class ForumTests extends BaseTest {
     void tc13_deleteOwnForumPost() {
         ForumPage forum = openTargetForum();
 
-        // Create a post first so we have something to delete
         String title   = "Post to delete - " + System.currentTimeMillis();
         String message = "This post will be deleted by TC13 automation.";
 
         forum.clickAddDiscussion();
         forum.createDiscussion(title, message);
 
-        // Delete and verify it is gone
         forum.deleteOwnForumPost(title);
 
         assertTrue(
                 forum.isDiscussionAbsent(title),
-                "TC13 FAIL – The deleted discussion should no longer be displayed."
-        );
+                "TC13 FAIL – Deleted discussion should no longer be displayed.");
     }
 }
